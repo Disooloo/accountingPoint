@@ -70,6 +70,12 @@ class _MyAppState extends State<MyApp> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
+          color: const Color(0xFF1E1E1E), // Более контрастный цвет карточек
+        ),
+        scaffoldBackgroundColor: const Color(0xFF121212),
+        textTheme: const TextTheme(
+          bodyLarge: TextStyle(color: Color(0xFFE0E0E0)),
+          bodyMedium: TextStyle(color: Color(0xFFE0E0E0)),
         ),
       ),
       home: HomeScreen(

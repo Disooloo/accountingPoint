@@ -75,7 +75,19 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
         (s) => s.categoryId == categoryId,
         orElse: () => CategoryStatus(categoryId: categoryId),
       );
-      status.isCompleted = !status.isCompleted;
+      
+      // Циклическое переключение: не начата -> начата -> выполнена -> не начата
+      switch (status.state) {
+        case CategoryState.notStarted:
+          status.state = CategoryState.started;
+          break;
+        case CategoryState.started:
+          status.state = CategoryState.completed;
+          break;
+        case CategoryState.completed:
+          status.state = CategoryState.notStarted;
+          break;
+      }
 
       if (!_statuses.contains(status)) {
         _statuses.add(status);
@@ -87,26 +99,25 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
   }
 
   void _onLongPress(String categoryId) {
+    // Удержание сбрасывает в начальное состояние
     final status = _statuses.firstWhere(
       (s) => s.categoryId == categoryId,
       orElse: () => CategoryStatus(categoryId: categoryId),
     );
 
-    if (status.isCompleted) {
-      _toggleCategoryStatus(categoryId);
-    }
+    setState(() {
+      status.state = CategoryState.notStarted;
+      if (!_statuses.contains(status)) {
+        _statuses.add(status);
+      }
+      _saveStatuses();
+      _checkCompletion();
+    });
   }
 
   void _onSwipeLeft(String categoryId) {
-    // Свайп влево - готово
-    final status = _statuses.firstWhere(
-      (s) => s.categoryId == categoryId,
-      orElse: () => CategoryStatus(categoryId: categoryId),
-    );
-
-    if (!status.isCompleted) {
-      _toggleCategoryStatus(categoryId);
-    }
+    // Свайп влево - переключение состояния
+    _toggleCategoryStatus(categoryId);
   }
 
   void _onSwipeRight(String categoryId) {
@@ -252,12 +263,12 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
     }
   }
 
-  bool _isCategoryCompleted(String categoryId) {
+  CategoryState _getCategoryState(String categoryId) {
     final status = _statuses.firstWhere(
       (s) => s.categoryId == categoryId,
       orElse: () => CategoryStatus(categoryId: categoryId),
     );
-    return status.isCompleted;
+    return status.state;
   }
 
   @override
@@ -270,11 +281,14 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
 
     final progress = _getProgress();
     final progressColor = _getProgressColor(progress);
+    
+    // Все категории, отсортированные по коду
     final categoryItems = _inventory!.categoryIds
         .where((id) => id != _deletedCategoryId)
         .map((id) => _getCategory(id))
         .whereType<Category>()
-        .toList();
+        .toList()
+      ..sort((a, b) => a.code.compareTo(b.code));
 
     return Scaffold(
       appBar: AppBar(
@@ -388,10 +402,59 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     itemCount: categoryItems.length,
                     itemBuilder: (context, index) {
-                      final category = categoryItems[index];
-                      final isCompleted = _isCategoryCompleted(category.id);
+                      return _buildCategoryCard(categoryItems[index]);
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
 
-                      return Dismissible(
+  Widget _buildCategoryCard(Category category) {
+    final state = _getCategoryState(category.id);
+    
+    // Определяем цвета и иконки для каждого состояния
+    Color? cardColor;
+    Color iconBgColor;
+    IconData iconData;
+    Color iconColor;
+    String? statusText;
+    Color? statusTextColor;
+    
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    switch (state) {
+      case CategoryState.notStarted:
+        cardColor = null;
+        iconBgColor = isDark ? Colors.grey[700]! : Colors.grey[300]!;
+        iconData = Icons.radio_button_unchecked;
+        iconColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
+        statusText = null;
+        break;
+      case CategoryState.started:
+        cardColor = isDark 
+            ? Colors.orange.withOpacity(0.2) 
+            : Colors.orange[50];
+        iconBgColor = Colors.orange;
+        iconData = Icons.play_circle_outline;
+        iconColor = Colors.white;
+        statusText = 'Начата';
+        statusTextColor = Colors.orange[700];
+        break;
+      case CategoryState.completed:
+        cardColor = isDark 
+            ? Colors.green.withOpacity(0.2) 
+            : Colors.green[50];
+        iconBgColor = Colors.green;
+        iconData = Icons.check_circle;
+        iconColor = Colors.white;
+        statusText = 'Выполнена';
+        statusTextColor = Colors.green[700];
+        break;
+    }
+
+    return Dismissible(
                         key: Key(category.id),
                         background: Container(
                           margin: const EdgeInsets.only(bottom: 8),
@@ -429,7 +492,7 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
                         },
                         confirmDismiss: (direction) async {
                           if (direction == DismissDirection.startToEnd) {
-                            // Свайп влево - готово
+                            // Свайп влево - переключение состояния
                             _onSwipeLeft(category.id);
                             return false; // Не удаляем из списка
                           } else {
@@ -440,7 +503,8 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
                         },
                         child: Card(
                           margin: const EdgeInsets.only(bottom: 8),
-                          color: isCompleted ? Colors.green[50] : null,
+                          color: cardColor,
+                          elevation: state == CategoryState.completed ? 3 : 1,
                           child: InkWell(
                             onTap: () => _toggleCategoryStatus(category.id),
                             onLongPress: () => _onLongPress(category.id),
@@ -453,18 +517,12 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
                                     width: 48,
                                     height: 48,
                                     decoration: BoxDecoration(
-                                      color: isCompleted
-                                          ? Colors.green
-                                          : Colors.grey[300],
+                                      color: iconBgColor,
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Icon(
-                                      isCompleted
-                                          ? Icons.check
-                                          : Icons.radio_button_unchecked,
-                                      color: isCompleted
-                                          ? Colors.white
-                                          : Colors.grey[600],
+                                      iconData,
+                                      color: iconColor,
                                       size: 24,
                                     ),
                                   ),
@@ -479,29 +537,58 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
                                           style: TextStyle(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w600,
-                                            decoration: isCompleted
+                                            decoration: state == CategoryState.completed
                                                 ? TextDecoration.lineThrough
                                                 : null,
-                                            color: isCompleted
-                                                ? Colors.grey[600]
-                                                : null,
+                                            color: state == CategoryState.completed
+                                                ? (isDark ? Colors.grey[400] : Colors.grey[600])
+                                                : (isDark ? Colors.grey[100] : null),
                                           ),
                                         ),
                                         const SizedBox(height: 4),
-                                        Text(
-                                          'Код: ${category.code}',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey[600],
-                                          ),
+                                        Row(
+                                          children: [
+                                            Text(
+                                              'Код: ${category.code}',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: isDark 
+                                                    ? Colors.grey[400] 
+                                                    : Colors.grey[600],
+                                              ),
+                                            ),
+                                            if (statusText != null) ...[
+                                              const SizedBox(width: 8),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 6,
+                                                  vertical: 2,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: statusTextColor?.withOpacity(0.2),
+                                                  borderRadius: BorderRadius.circular(4),
+                                                ),
+                                                child: Text(
+                                                  statusText,
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: statusTextColor,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
                                         ),
                                       ],
                                     ),
                                   ),
-                                  if (isCompleted)
+                                  if (state == CategoryState.completed)
                                     Icon(
                                       Icons.check_circle,
-                                      color: Colors.green[700],
+                                      color: isDark 
+                                          ? Colors.green[400] 
+                                          : Colors.green[700],
                                     ),
                                 ],
                               ),
@@ -509,12 +596,6 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
                           ),
                         ),
                       );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
   }
 }
 

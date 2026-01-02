@@ -1,33 +1,56 @@
+enum CategoryState {
+  notStarted, // Не начата
+  started,    // Начата
+  completed,  // Выполнена
+}
+
 class CategoryStatus {
   final String categoryId;
-  bool isCompleted;
+  CategoryState state;
 
   CategoryStatus({
     required this.categoryId,
-    this.isCompleted = false,
+    this.state = CategoryState.notStarted,
   });
+
+  bool get isCompleted => state == CategoryState.completed;
+  bool get isStarted => state == CategoryState.started;
+  bool get isNotStarted => state == CategoryState.notStarted;
 
   Map<String, dynamic> toJson() {
     return {
       'categoryId': categoryId,
-      'isCompleted': isCompleted,
+      'state': state.name, // Сохраняем имя enum
     };
   }
 
   factory CategoryStatus.fromJson(Map<String, dynamic> json) {
+    // Поддержка старого формата для обратной совместимости
+    if (json.containsKey('isCompleted')) {
+      return CategoryStatus(
+        categoryId: json['categoryId'],
+        state: json['isCompleted'] == true 
+            ? CategoryState.completed 
+            : CategoryState.notStarted,
+      );
+    }
+    // Новый формат
     return CategoryStatus(
       categoryId: json['categoryId'],
-      isCompleted: json['isCompleted'] ?? false,
+      state: CategoryState.values.firstWhere(
+        (e) => e.name == json['state'],
+        orElse: () => CategoryState.notStarted,
+      ),
     );
   } 
 
   CategoryStatus copyWith({
     String? categoryId,
-    bool? isCompleted,
+    CategoryState? state,
   }) {
     return CategoryStatus(
       categoryId: categoryId ?? this.categoryId,
-      isCompleted: isCompleted ?? this.isCompleted,
+      state: state ?? this.state,
     );
   }
 }

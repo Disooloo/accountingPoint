@@ -29,15 +29,6 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
   void _loadCategories() {
     setState(() {
       _categories = StorageService.getCategories();
-      _categories.sort((a, b) {
-        // Специальные категории (00, 01) в начале
-        if (a.isSpecial && !b.isSpecial) return -1;
-        if (!a.isSpecial && b.isSpecial) return 1;
-        if (a.isSpecial && b.isSpecial) {
-          return a.code.compareTo(b.code);
-        }
-        return a.code.compareTo(b.code);
-      });
     });
   }
 
@@ -47,13 +38,20 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Добавить категорию'),
-        content: TextField(
-          controller: _controller,
-          decoration: const InputDecoration(
-            hintText: 'Например: 20 - автотовары',
-            labelText: 'Название категории',
-          ),
-          autofocus: true,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _controller,
+              decoration: const InputDecoration(
+                hintText: '00 - 01 КБТ',
+                labelText: 'Код - наименование',
+                helperText: 'Формат: код - наименование (00 - 01 КБТ ...)',
+              ),
+              autofocus: true,
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -73,6 +71,89 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
         ],
       ),
     );
+  }
+
+  void _showEditCategoryDialog(Category category) {
+    _controller.text = '${category.code} - ${category.name}';
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Редактировать категорию'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _controller,
+              decoration: const InputDecoration(
+                hintText: '00 - 01 КБТ',
+                labelText: 'Код - наименование',
+                helperText: 'Формат: код - наименование (00 - 01 КБТ ...)',
+              ),
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final text = _controller.text.trim();
+              if (text.isNotEmpty) {
+                _updateCategory(category, text);
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _updateCategory(Category category, String text) {
+    // Парсим код и название из строки вида "20 - автотовары" или просто "20"
+    String code = '';
+    String name = text;
+
+    if (text.contains(' - ')) {
+      final parts = text.split(' - ');
+      code = parts[0].trim();
+      name = parts.length > 1 ? parts[1].trim() : text;
+    } else if (text.contains('-')) {
+      final parts = text.split('-');
+      code = parts[0].trim();
+      name = parts.length > 1 ? parts[1].trim() : text;
+    } else {
+      // Если нет разделителя, пытаемся извлечь код из начала
+      final match = RegExp(r'^(\d+)').firstMatch(text);
+      if (match != null) {
+        code = match.group(1)!;
+        name = text.substring(code.length).trim();
+        if (name.isEmpty) name = text;
+      } else {
+        code = category.code; // Сохраняем старый код
+      }
+    }
+
+    // Если код пустой, используем старый
+    if (code.isEmpty) code = category.code;
+
+    final updatedCategory = category.copyWith(
+      name: name,
+      code: code,
+    );
+
+    final categories = StorageService.getCategories();
+    final index = categories.indexWhere((c) => c.id == category.id);
+    if (index != -1) {
+      categories[index] = updatedCategory;
+      StorageService.saveCategories(categories);
+      _loadCategories();
+    }
   }
 
   void _addCategory(String text) {
@@ -187,22 +268,37 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                // Выпадающий список для подкатегорий "00"
                 if (specialCategories.isNotEmpty) ...[
-                  Text(
-                    'Специальные категории (00, 01)',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[700],
+                  Card(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    child: ExpansionTile(
+                      leading: const Icon(Icons.folder_outlined),
+                      title: const Text(
+                        'Подкатегории (00)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      subtitle: Text('${specialCategories.length} категорий'),
+                      childrenPadding: const EdgeInsets.only(
+                        left: 8,
+                        right: 8,
+                        bottom: 8,
+                      ),
+                      children: specialCategories.map((category) {
+                        return Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: _buildCategoryCard(category),
+                        );
+                      }).toList(),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  ...specialCategories.map((category) => _buildCategoryCard(category)),
-                  const SizedBox(height: 24),
                 ],
+                // Остальные категории, отсортированные по коду
                 if (regularCategories.isNotEmpty) ...[
                   Text(
-                    'Обычные категории',
+                    'Категории',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -210,7 +306,8 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  ...regularCategories.map((category) => _buildCategoryCard(category)),
+                  ...(regularCategories..sort((a, b) => a.code.compareTo(b.code)))
+                      .map((category) => _buildCategoryCard(category)),
                 ],
               ],
             ),
@@ -222,18 +319,114 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
   }
 
   Widget _buildCategoryCard(Category category) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        title: Text(category.name),
-        subtitle: Text('Код: ${category.code}'),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline),
-          onPressed: () => _deleteCategory(category),
+    return Dismissible(
+      key: Key(category.id),
+      direction: DismissDirection.horizontal,
+      background: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: Colors.blue,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 20),
+        child: const Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.edit,
+              color: Colors.white,
+              size: 32,
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Редактировать',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+      secondaryBackground: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
           color: Colors.red,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        child: const Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.delete_outline,
+              color: Colors.white,
+              size: 32,
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Удалить',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          // Свайп вправо - редактирование
+          _showEditCategoryDialog(category);
+          return false; // Не удаляем из списка
+        } else {
+          // Свайп влево - удаление
+          return await _confirmDelete(category);
+        }
+      },
+      onDismissed: (direction) {
+        if (direction == DismissDirection.endToStart) {
+          // Удаляем категорию
+          final categories = StorageService.getCategories();
+          categories.removeWhere((c) => c.id == category.id);
+          StorageService.saveCategories(categories);
+          _loadCategories();
+        }
+      },
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 8),
+        child: ListTile(
+          title: Text(category.name),
+          subtitle: Text('Код: ${category.code}'),
         ),
       ),
     );
   }
-}
 
+  Future<bool> _confirmDelete(Category category) async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Удалить категорию?'),
+        content: Text('Категория "${category.name}" будет удалена'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            child: const Text('Удалить'),
+          ),
+        ],
+      ),
+    ) ?? false;
+  }
+}

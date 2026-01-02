@@ -24,6 +24,12 @@ class _CreateInventoryScreenState extends State<CreateInventoryScreen> {
   void _loadCategories() {
     setState(() {
       _allCategories = StorageService.getCategories();
+      // Сортируем: сначала обычные по коду, потом специальные
+      _allCategories.sort((a, b) {
+        if (a.isSpecial && !b.isSpecial) return 1; // Специальные в конце
+        if (!a.isSpecial && b.isSpecial) return -1;
+        return a.code.compareTo(b.code);
+      });
     });
   }
 
@@ -147,23 +153,83 @@ class _CreateInventoryScreenState extends State<CreateInventoryScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                ..._allCategories.map((category) => Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: CheckboxListTile(
-                        title: Text(category.name),
-                        subtitle: Text('Код: ${category.code}'),
-                        value: _selectedCategoryIds.contains(category.id),
-                        onChanged: (value) {
-                          setState(() {
-                            if (value == true) {
-                              _selectedCategoryIds.add(category.id);
-                            } else {
-                              _selectedCategoryIds.remove(category.id);
-                            }
-                          });
-                        },
-                      ),
-                    )),
+                // Разделяем на подкатегории "00" и остальные
+                Builder(
+                  builder: (context) {
+                    final subcategories00 = _allCategories
+                        .where((c) => c.code == '00')
+                        .toList();
+                    final regularCategories = _allCategories
+                        .where((c) => c.code != '00')
+                        .toList()
+                      ..sort((a, b) => a.code.compareTo(b.code));
+                    
+                    return Column(
+                      children: [
+                        // Выпадающий список для подкатегорий "00"
+                        if (subcategories00.isNotEmpty)
+                          Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: ExpansionTile(
+                              leading: const Icon(Icons.folder_outlined),
+                              title: const Text(
+                                'Подкатегории (00)',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle: Text('${subcategories00.length} категорий'),
+                              childrenPadding: const EdgeInsets.only(
+                                left: 8,
+                                right: 8,
+                                bottom: 8,
+                              ),
+                              children: subcategories00.map((category) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(left: 8),
+                                  child: Card(
+                                    margin: const EdgeInsets.only(bottom: 4),
+                                    child: CheckboxListTile(
+                                      title: Text(category.name),
+                                      subtitle: Text('Код: ${category.code}'),
+                                      value: _selectedCategoryIds.contains(category.id),
+                                      onChanged: (value) {
+                                        setState(() {
+                                          if (value == true) {
+                                            _selectedCategoryIds.add(category.id);
+                                          } else {
+                                            _selectedCategoryIds.remove(category.id);
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        // Остальные категории
+                        ...regularCategories.map((category) => Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              child: CheckboxListTile(
+                                title: Text(category.name),
+                                subtitle: Text('Код: ${category.code}'),
+                                value: _selectedCategoryIds.contains(category.id),
+                                onChanged: (value) {
+                                  setState(() {
+                                    if (value == true) {
+                                      _selectedCategoryIds.add(category.id);
+                                    } else {
+                                      _selectedCategoryIds.remove(category.id);
+                                    }
+                                  });
+                                },
+                              ),
+                            )),
+                      ],
+                    );
+                  },
+                ),
               ],
             ),
           ),

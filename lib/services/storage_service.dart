@@ -16,7 +16,7 @@ class StorageService {
     final json = _prefs?.getString('inventories') ?? '[]';
     final List<dynamic> decoded = jsonDecode(json);
     return decoded.map((item) => Inventory.fromJson(item)).toList()
-      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt)); // Новые сверху
   }
 
   static Future<void> saveInventories(List<Inventory> inventories) async {
