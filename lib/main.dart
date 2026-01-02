@@ -43,7 +43,7 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Учет инвентаризации',
+      title: 'Инвентарус',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeService.getThemeModeForMaterial(_themeMode),
       theme: ThemeData(

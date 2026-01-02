@@ -19,7 +19,7 @@ class CategoryStatus {
       categoryId: json['categoryId'],
       isCompleted: json['isCompleted'] ?? false,
     );
-  }
+  } 
 
   CategoryStatus copyWith({
     String? categoryId,

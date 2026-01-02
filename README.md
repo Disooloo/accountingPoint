@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="img/logo.jpg" alt="Логотип" width="200"/>
+  <img src="img/logo.png" alt="Логотип" width="200"/>
   
   # Учет инвентаризации
   

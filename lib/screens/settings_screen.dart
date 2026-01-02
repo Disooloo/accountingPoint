@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:share_plus/share_plus.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:cross_file/cross_file.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'dart:io';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 import '../services/theme_service.dart';
 import '../services/export_service.dart';
 import '../services/import_service.dart';
+import '../utils/web_file_utils_stub.dart' if (dart.library.html) '../utils/web_file_utils.dart';
 
 class SettingsScreen extends StatefulWidget {
   final Function(AppThemeMode)? onThemeModeChanged;
@@ -38,55 +47,131 @@ class _SettingsScreenState extends State<SettingsScreen> {
     widget.onThemeModeChanged?.call(mode);
   }
 
-  void _exportAll() {
+  Future<void> _exportAll() async {
     final data = ExportService.exportAll();
     final jsonString = ExportService.toJsonString(data);
-    _downloadFile(jsonString, 'inventory_backup_all.json');
+    await _downloadFile(jsonString, 'inventory_backup_all.json');
     _showSnackBar('Все данные экспортированы');
   }
 
-  void _exportCategories() {
+  Future<void> _exportCategories() async {
     final data = ExportService.exportCategories();
     final jsonString = ExportService.toJsonString(data);
-    _downloadFile(jsonString, 'inventory_backup_categories.json');
+    await _downloadFile(jsonString, 'inventory_backup_categories.json');
     _showSnackBar('Категории экспортированы');
   }
 
-  void _exportInventories() {
+  Future<void> _exportInventories() async {
     final data = ExportService.exportInventories();
     final jsonString = ExportService.toJsonString(data);
-    _downloadFile(jsonString, 'inventory_backup_inventories.json');
+    await _downloadFile(jsonString, 'inventory_backup_inventories.json');
     _showSnackBar('Инвентаризации экспортированы');
   }
 
-  void _downloadFile(String content, String filename) {
-    // Для всех платформ копируем в буфер обмена
-    // На Android пользователь может вставить данные в файл
-    Clipboard.setData(ClipboardData(text: content));
-    _showSnackBar('Данные скопированы в буфер обмена. Сохраните их в файл $filename');
+  Future<void> _downloadFile(String content, String filename) async {
+    if (kIsWeb) {
+      // Для веба используем dart:html
+      _downloadFileWeb(content, filename);
+    } else {
+      // Для мобильных платформ используем share_plus
+      final bytes = Uint8List.fromList(utf8.encode(content));
+      final xFile = XFile.fromData(
+        bytes,
+        name: filename,
+        mimeType: 'application/json',
+      );
+      await Share.shareXFiles([xFile], text: 'Экспорт данных инвентаризации');
+    }
+  }
+
+  void _downloadFileWeb(String content, String filename) {
+    if (kIsWeb) {
+      WebFileUtils.downloadFile(content, filename);
+    }
   }
 
   Future<void> _importAll() async {
-    if (kIsWeb) {
-      _showSnackBar('Импорт файлов доступен только через веб-интерфейс. Используйте веб-версию приложения.', isError: true);
+    final content = await _pickFile();
+    if (content == null) return;
+
+    final result = await ImportService.importAll(content);
+
+    if (result.success) {
+      _showSnackBar(
+        'Импортировано: ${result.inventoriesCount ?? 0} инвентаризаций, ${result.categoriesCount ?? 0} категорий',
+        isError: false,
+      );
+      // Обновляем главный экран
+      Navigator.pop(context, true);
     } else {
-      _showSnackBar('Импорт доступен только в веб-версии', isError: true);
+      _showSnackBar('Ошибка импорта: ${result.error}', isError: true);
     }
   }
 
   Future<void> _importCategories() async {
-    if (kIsWeb) {
-      _showSnackBar('Импорт файлов доступен только через веб-интерфейс. Используйте веб-версию приложения.', isError: true);
+    final content = await _pickFile();
+    if (content == null) return;
+
+    final result = await ImportService.importCategories(content);
+
+    if (result.success) {
+      _showSnackBar(
+        'Импортировано: ${result.categoriesCount ?? 0} категорий',
+        isError: false,
+      );
     } else {
-      _showSnackBar('Импорт доступен только в веб-версии', isError: true);
+      _showSnackBar('Ошибка импорта: ${result.error}', isError: true);
     }
   }
 
   Future<void> _importInventories() async {
-    if (kIsWeb) {
-      _showSnackBar('Импорт файлов доступен только через веб-интерфейс. Используйте веб-версию приложения.', isError: true);
+    final content = await _pickFile();
+    if (content == null) return;
+
+    final result = await ImportService.importInventories(content);
+
+    if (result.success) {
+      _showSnackBar(
+        'Импортировано: ${result.inventoriesCount ?? 0} инвентаризаций',
+        isError: false,
+      );
+      // Обновляем главный экран
+      Navigator.pop(context, true);
     } else {
-      _showSnackBar('Импорт доступен только в веб-версии', isError: true);
+      _showSnackBar('Ошибка импорта: ${result.error}', isError: true);
+    }
+  }
+
+  Future<String?> _pickFile() async {
+    if (kIsWeb) {
+      return await _pickFileWeb();
+    } else {
+      return await _pickFileMobile();
+    }
+  }
+
+  Future<String?> _pickFileWeb() async {
+    if (kIsWeb) {
+      return await WebFileUtils.pickFile();
+    }
+    return null;
+  }
+
+  Future<String?> _pickFileMobile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+
+      if (result != null && result.files.single.path != null) {
+        final file = File(result.files.single.path!);
+        return await file.readAsString();
+      }
+      return null;
+    } catch (e) {
+      _showSnackBar('Ошибка при выборе файла: $e', isError: true);
+      return null;
     }
   }
 
@@ -232,9 +317,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
+          const SizedBox(height: 16),
+
+          // Об авторе
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.info_outline),
+              title: const Text('Об авторе'),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 4),
+                  const Text('Разработчик: Disooloo'),
+                  const SizedBox(height: 4),
+                  GestureDetector(
+                    onTap: () => _openTelegram(),
+                    child: Text(
+                      't.me/disooloo',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  Future<void> _openTelegram() async {
+    final url = Uri.parse('https://t.me/disooloo');
+    try {
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      } else {
+        _showSnackBar('Не удалось открыть ссылку', isError: true);
+      }
+    } catch (e) {
+      _showSnackBar('Ошибка: $e', isError: true);
+    }
   }
 
   String _getThemeModeName(AppThemeMode mode) {
